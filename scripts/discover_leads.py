@@ -397,7 +397,14 @@ def main():
     Path("artifacts/run-summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     if len(records) != target:
-        raise SystemExit(2)
+        # An incomplete search is a valid business outcome, not a workflow crash.
+        # Keep the run green so the uploaded CSV and summary are easy to access.
+        print(
+            f"INCOMPLETE: found {len(records)} of {target} requested leads. "
+            "See the run-summary.json artifact for details."
+        )
+    else:
+        print(f"SUCCESS: found exactly {target} qualified leads.")
 
 if __name__ == "__main__":
     try:
