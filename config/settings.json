@@ -1,0 +1,12 @@
+{
+  "timezone": "Asia/Kolkata",
+  "daily_lead_target": 25,
+  "send_mode": "disabled",
+  "max_emails_per_day": 0,
+  "require_public_source": true,
+  "require_verified_email": true,
+  "skip_duplicates": true,
+  "skip_suppressed_contacts": true,
+  "follow_up_enabled": false,
+  "automation_enabled": false
+}
