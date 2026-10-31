@@ -19,6 +19,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Validate Python syntax
+        run: python -m py_compile scripts/discover_leads.py
+
       - name: Run public-source discovery
         run: python scripts/discover_leads.py
 
