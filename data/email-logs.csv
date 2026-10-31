@@ -1,0 +1,1 @@
+event_id,lead_id,recipient_email,subject,sent_at,provider_message_id,status,bounce_type,reply_detected,notes
