@@ -84,7 +84,7 @@ jobs:
           os.makedirs("config", exist_ok=True)
           with open("config/search-request.json", "w", encoding="utf-8") as f:
               json.dump(request, f, ensure_ascii=False, indent=2)
-              f.write("\\n")
+              f.write("\n")
           print(json.dumps(request, ensure_ascii=False, indent=2))
           PY
 
