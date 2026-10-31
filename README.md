@@ -4,7 +4,7 @@ A GitHub-backed CRM scaffold for researching publicly listed digital marketing a
 
 ## Current status
 - CRM structure initialized.
-- A first public-source discovery engine is implemented using OpenStreetMap Nominatim and Overpass.
+- A public-source discovery engine uses OpenStreetMap Nominatim/Overpass and checks linked business websites for publicly listed emails only when robots.txt permits.
 - Discovery is manual; no scheduled run or email automation is active.
 - Results are uploaded as a downloadable GitHub Actions artifact and are not committed to this public repository.
 - The repository is currently public. All committed files, including future lead records, are publicly visible. Do not commit credentials, private correspondence, or personal data.
@@ -49,6 +49,6 @@ The workflow saves your request to `config/search-request.json`.
 3. Open the completed run and download the `lead-discovery-results` artifact.
 4. The artifact contains a CSV and `run-summary.json`.
 
-The first discovery source is OpenStreetMap. It only returns businesses mapped with relevant industry tags; coverage can be incomplete. Public map data is not proof that a business is currently active. Email addresses are only syntax-checked, not deliverability-verified. Requested custom fields that are not present in the source are left blank. No emails are sent.
+Discovery starts with OpenStreetMap businesses tagged with relevant industry terms or a website. When a business has no OSM email, its own website homepage and likely contact/about pages are checked only if robots.txt permits. The engine does not guess email patterns, bypass access controls, or scrape search-engine result pages. Coverage can still be incomplete because the business candidate pool starts from OpenStreetMap. Public listings do not prove a business is currently active. Email addresses are syntax-checked, not deliverability-verified. Duplicate emails and normalized business names are excluded. Requested custom fields that are not present in the source are left blank. No emails are sent.
 
 **Public-repository safety:** lead results are deliberately uploaded as a temporary workflow artifact (14-day retention), not committed to `data/leads.csv`, because this repository is public. Make the repository private before enabling persistent CRM storage of real lead/contact data.
