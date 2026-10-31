@@ -8,5 +8,7 @@
   "skip_duplicates": true,
   "skip_suppressed_contacts": true,
   "follow_up_enabled": false,
-  "automation_enabled": false
+  "automation_enabled": false,
+  "sender_email": "saurabh.devworks@gmail.com",
+  "sender_email_confirmed_by_user": true
 }
