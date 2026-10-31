@@ -2,8 +2,8 @@
   "state": "Uttar Pradesh",
   "rotation_index": 0,
   "last_completed_district": null,
-  "next_district": null,
+  "next_district": "Ghaziabad",
   "last_run_at": null,
   "completed_districts": [],
-  "notes": "District list and starting district must be configured before any lead discovery run."
+  "notes": "Ghaziabad selected as the first district by the user. No lead discovery or email sending has run yet."
 }
