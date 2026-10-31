@@ -6,6 +6,9 @@ OSM coverage is incomplete; absence of a result does not mean a business does no
 """
 import csv
 import json
+import html
+import html.parser
+import urllib.robotparser
 import os
 import re
 import sys
@@ -24,7 +27,7 @@ USER_AGENT = "UPBusinessLeadResearch/1.0 (GitHub Actions; contact: repository ma
 BASE_FIELDS = [
     "lead_id", "business_name", "location", "district", "services",
     "mobile", "email", "website", "source_url", "verification_status",
-    "verification_notes", "email_status", "first_seen_at"
+    "verification_notes", "email_status", "email_source_url", "first_seen_at"
 ]
 INDUSTRY_TERMS = [
     "digital marketing", "marketing", "advertising", "seo", "social media",
@@ -76,6 +79,8 @@ def query_overpass(bbox):
       nwr["name"]["craft"~"advertising|marketing",i]({box});
       nwr["name"]["advertising"]({box});
       nwr["name"]["description"~"marketing|advertising|digital agency|SEO|social media",i]({box});
+      nwr["name"]["website"]({box});
+      nwr["name"]["contact:website"]({box});
     );
     out center tags;
     """
@@ -133,6 +138,77 @@ def normalize_email(value):
     value = value.strip().lower()
     return value if re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value) else ""
 
+
+class PageParser(html.parser.HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.links = []
+        self.text_parts = []
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() == "a":
+            href = dict(attrs).get("href", "")
+            if href:
+                self.links.append(href)
+    def handle_data(self, data):
+        self.text_parts.append(data)
+
+EMAIL_RE = re.compile(r"(?i)(?<![\w.+-])[\w.!#$%&'*+/=?^_{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+")
+CONTACT_HINTS = ("contact", "about", "reach-us", "get-in-touch")
+
+def fetch_page(url, timeout=12):
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "text/html"})
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        if "text/html" not in response.headers.get("Content-Type", "").lower():
+            return "", response.geturl()
+        raw = response.read(1_500_000)
+        charset = response.headers.get_content_charset() or "utf-8"
+        return raw.decode(charset, errors="replace"), response.geturl()
+
+def public_email_from_website(website):
+    """Read public pages only when robots.txt permits; never bypass access controls."""
+    if not website:
+        return "", ""
+    parsed = urllib.parse.urlparse(website)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return "", ""
+    base = f"{parsed.scheme}://{parsed.netloc}"
+    robot = urllib.robotparser.RobotFileParser()
+    robot.set_url(urllib.parse.urljoin(base, "/robots.txt"))
+    try:
+        robot.read()
+    except Exception:
+        return "", ""
+    candidates = [website]
+    try:
+        homepage, final_url = fetch_page(website)
+        parser = PageParser()
+        parser.feed(homepage)
+        for href in parser.links:
+            absolute = urllib.parse.urljoin(final_url, href)
+            if urllib.parse.urlparse(absolute).netloc == parsed.netloc and any(h in urllib.parse.urlparse(absolute).path.lower() for h in CONTACT_HINTS):
+                candidates.append(absolute)
+    except Exception:
+        pass
+    candidates.extend(urllib.parse.urljoin(base, "/" + path) for path in ("contact", "contact-us", "about", "about-us"))
+    checked = set()
+    for page_url in candidates:
+        normalized = page_url.split("#", 1)[0]
+        if normalized in checked or urllib.parse.urlparse(normalized).netloc != parsed.netloc:
+            continue
+        checked.add(normalized)
+        try:
+            if not robot.can_fetch("UPBusinessLeadResearch", normalized):
+                continue
+            page, final_url = fetch_page(normalized)
+            matches = list(dict.fromkeys(normalize_email(x) for x in EMAIL_RE.findall(html.unescape(page)) if normalize_email(x)))
+            if matches:
+                host = parsed.netloc.lower().removeprefix("www.")
+                same_domain = [e for e in matches if e.rsplit("@", 1)[1].lower() == host]
+                return (same_domain or matches)[0], final_url
+        except Exception:
+            continue
+    return "", ""
+
 def make_record(element, district, display_location, requested_fields, seen_at):
     tags = element.get("tags", {})
     name = first(tags, "name", "official_name", "brand")
@@ -156,6 +232,7 @@ def make_record(element, district, display_location, requested_fields, seen_at):
         "services": services,
         "mobile": phone,
         "email": email,
+        "email_source_url": source if email else "",
         "website": website,
         "source_url": source,
         "verification_status": "public_source_found_contact_unverified",
@@ -210,8 +287,16 @@ def main():
         if not is_relevant(tags, industry):
             continue
         record = make_record(element, district, display_location, requested_fields, seen_at)
-        # Hard qualification rule: every exported lead must have a syntactically valid,
-        # publicly listed email address. Never fabricate or infer an email.
+        # Prefer an email explicitly listed in OSM. Otherwise inspect the business's
+        # own public website only when robots.txt permits. Never guess email patterns.
+        if record and not record.get("email") and record.get("website"):
+            discovered_email, evidence_url = public_email_from_website(record["website"])
+            if discovered_email:
+                record["email"] = discovered_email
+                record["email_source_url"] = evidence_url
+                record["email_status"] = "publicly_listed_on_website_format_only"
+                record["verification_notes"] = "Email found on the business public website; mailbox deliverability is not verified."
+            time.sleep(1.5)
         if record and record.get("email"):
             records.append(record)
         if len(records) >= target:
@@ -232,12 +317,14 @@ def main():
         "required_email": True,
         "status": "SUCCESS" if len(records) == target else "INCOMPLETE",
         "incomplete_reason": "" if len(records) == target else f"Requested exactly {target} email-qualified leads, but only {len(records)} were found. No records without a public email were included.",
-        "source": "OpenStreetMap via Nominatim and Overpass",
+        "source": "OpenStreetMap plus robots.txt-permitted public business website pages",
         "generated_at": seen_at,
         "limitations": [
             "OpenStreetMap coverage is community-maintained and may be incomplete.",
             "A public map listing is not proof that a business is currently active.",
             "Only records with a publicly listed, syntactically valid email are included; email deliverability is not verified.",
+            "Business websites are inspected only when robots.txt permits; blocked or disallowed pages are skipped.",
+            "Only businesses discovered in the selected OpenStreetMap area are considered; this is not a complete business directory.",
             "Custom fields not present in source data are left blank.",
             "No emails were sent and no lead data was committed to the public repository."
         ],
