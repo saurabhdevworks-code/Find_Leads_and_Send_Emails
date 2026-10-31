@@ -1,0 +1,31 @@
+name: Run Lead Discovery
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run public-source discovery
+        run: python scripts/discover_leads.py
+
+      - name: Upload results (not committed to repository)
+        uses: actions/upload-artifact@v4
+        with:
+          name: lead-discovery-results
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14
