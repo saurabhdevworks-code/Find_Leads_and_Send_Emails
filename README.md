@@ -30,3 +30,14 @@ Never store Gmail credentials, OAuth tokens, API keys, or app passwords in this 
 
 ## Automation status
 This repository is a data scaffold only. A scheduled workflow must not be enabled until discovery, verification, suppression checks, send limits, and error handling are implemented and tested.
+
+## Custom lead-search form
+
+Open the repository's **Actions** tab, choose **Configure Lead Search**, click **Run workflow**, and enter:
+- Industry / business type
+- Location and district
+- Number of leads (1–100)
+- Custom fields as a comma-separated list (for example: `owner_name,instagram,linkedin,company_size`)
+- Any extra filters or instructions
+
+The workflow saves your request to `config/search-request.json`. This is currently a request-configuration step only: it does not discover leads, verify contacts, or send emails. Email sending remains disabled.
