@@ -1,0 +1,96 @@
+name: Configure Lead Search
+
+on:
+  workflow_dispatch:
+    inputs:
+      industry:
+        description: "Which type of businesses should be researched?"
+        required: true
+        type: string
+        default: "Digital marketing agencies"
+      location:
+        description: "City, district, state or region"
+        required: true
+        type: string
+        default: "Ghaziabad, Uttar Pradesh, India"
+      district:
+        description: "UP district for district-wise tracking"
+        required: true
+        type: string
+        default: "Ghaziabad"
+      lead_count:
+        description: "How many leads should this search target? (1-100)"
+        required: true
+        type: number
+        default: 25
+      custom_fields:
+        description: "Comma-separated fields to collect (e.g. owner_name, instagram, linkedin, company_size)"
+        required: false
+        type: string
+        default: "business_name,location,district,services,mobile,email,website,source_url"
+      extra_instructions:
+        description: "Any additional filters or instructions"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  save-search-request:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate and save search request
+        env:
+          INDUSTRY: ${{ inputs.industry }}
+          LOCATION: ${{ inputs.location }}
+          DISTRICT: ${{ inputs.district }}
+          LEAD_COUNT: ${{ inputs.lead_count }}
+          CUSTOM_FIELDS: ${{ inputs.custom_fields }}
+          EXTRA_INSTRUCTIONS: ${{ inputs.extra_instructions }}
+        run: |
+          python - <<'PY'
+          import json, os, re
+          from datetime import datetime, timezone
+
+          count = int(float(os.environ["LEAD_COUNT"]))
+          if count < 1 or count > 100:
+              raise SystemExit("lead_count must be between 1 and 100")
+
+          fields = []
+          for item in os.environ.get("CUSTOM_FIELDS", "").split(","):
+              field = re.sub(r"[^a-zA-Z0-9_ -]", "", item).strip()
+              if field and field not in fields:
+                  fields.append(field)
+
+          request = {
+              "industry": os.environ["INDUSTRY"].strip(),
+              "location": os.environ["LOCATION"].strip(),
+              "district": os.environ["DISTRICT"].strip(),
+              "lead_count": count,
+              "custom_fields": fields,
+              "extra_instructions": os.environ.get("EXTRA_INSTRUCTIONS", "").strip(),
+              "requested_at": datetime.now(timezone.utc).isoformat(),
+              "status": "saved_only_not_executed",
+              "email_sending": "disabled"
+          }
+          if not request["industry"] or not request["location"]:
+              raise SystemExit("industry and location are required")
+
+          os.makedirs("config", exist_ok=True)
+          with open("config/search-request.json", "w", encoding="utf-8") as f:
+              json.dump(request, f, ensure_ascii=False, indent=2)
+              f.write("\\n")
+          print(json.dumps(request, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Commit search request
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add config/search-request.json
+          git diff --cached --quiet || (git commit -m "Save custom lead search request" && git push)
