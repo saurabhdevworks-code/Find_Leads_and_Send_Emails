@@ -61,13 +61,53 @@ def fetch_json(url, timeout=45):
         return json.loads(response.read().decode("utf-8"))
 
 def locate_area(location):
-    params = urllib.parse.urlencode({"q": location, "format": "jsonv2", "limit": 1, "addressdetails": 1})
+    # A bounding box is only a search optimization, never proof of district membership.
+    params = urllib.parse.urlencode({
+        "q": location, "format": "jsonv2", "limit": 1,
+        "addressdetails": 1, "polygon_geojson": 1
+    })
     results = fetch_json(NOMINATIM + "?" + params, timeout=30)
     if not results:
         raise RuntimeError(f"Could not locate '{location}' with OpenStreetMap Nominatim.")
-    box = [float(v) for v in results[0]["boundingbox"]]
+    result = results[0]
+    geometry = result.get("geojson")
+    if not geometry:
+        raise RuntimeError(
+            f"Nominatim did not return a boundary polygon for '{location}'. "
+            "Refusing to label nearby cities as leads in the requested district."
+        )
+    box = [float(v) for v in result["boundingbox"]]
     south, north, west, east = box
-    return south, west, north, east, results[0].get("display_name", location)
+    return south, west, north, east, result.get("display_name", location), geometry
+
+def point_in_ring(lon, lat, ring):
+    inside = False
+    if not ring or len(ring) < 4:
+        return False
+    j = len(ring) - 1
+    for i in range(len(ring)):
+        xi, yi = float(ring[i][0]), float(ring[i][1])
+        xj, yj = float(ring[j][0]), float(ring[j][1])
+        if ((yi > lat) != (yj > lat)):
+            cross = (xj - xi) * (lat - yi) / ((yj - yi) or 1e-15) + xi
+            if lon < cross:
+                inside = not inside
+        j = i
+    return inside
+
+def point_in_geometry(lon, lat, geometry):
+    if not geometry or not isinstance(geometry, dict):
+        return False
+    kind = geometry.get("type")
+    coordinates = geometry.get("coordinates", [])
+    polygons = [coordinates] if kind == "Polygon" else coordinates if kind == "MultiPolygon" else []
+    for polygon in polygons:
+        if not polygon or not point_in_ring(lon, lat, polygon[0]):
+            continue
+        # GeoJSON rings after the first are holes.
+        if not any(point_in_ring(lon, lat, hole) for hole in polygon[1:]):
+            return True
+    return False
 
 def query_overpass(bbox):
     south, west, north, east = bbox
@@ -165,12 +205,17 @@ def fetch_page(url, timeout=12):
         return raw.decode(charset, errors="replace"), response.geturl()
 
 def public_email_from_website(website):
-    """Read public pages only when robots.txt permits; never bypass access controls."""
+    """Read same-site public pages only when robots.txt permits.
+
+    A redirect to a parked domain, directory, or unrelated host is not evidence
+    for the business and must never supply its email address.
+    """
     if not website:
         return "", ""
     parsed = urllib.parse.urlparse(website)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         return "", ""
+    original_host = parsed.netloc.lower().removeprefix("www.")
     base = f"{parsed.scheme}://{parsed.netloc}"
     robot = urllib.robotparser.RobotFileParser()
     robot.set_url(urllib.parse.urljoin(base, "/robots.txt"))
@@ -181,11 +226,14 @@ def public_email_from_website(website):
     candidates = [website]
     try:
         homepage, final_url = fetch_page(website)
+        final_host = urllib.parse.urlparse(final_url).netloc.lower().removeprefix("www.")
+        if final_host != original_host:
+            return "", ""
         parser = PageParser()
         parser.feed(homepage)
         for href in parser.links:
             absolute = urllib.parse.urljoin(final_url, href)
-            if urllib.parse.urlparse(absolute).netloc == parsed.netloc and any(h in urllib.parse.urlparse(absolute).path.lower() for h in CONTACT_HINTS):
+            if urllib.parse.urlparse(absolute).netloc.lower().removeprefix("www.") == original_host and any(h in urllib.parse.urlparse(absolute).path.lower() for h in CONTACT_HINTS):
                 candidates.append(absolute)
     except Exception:
         pass
@@ -193,18 +241,21 @@ def public_email_from_website(website):
     checked = set()
     for page_url in candidates:
         normalized = page_url.split("#", 1)[0]
-        if normalized in checked or urllib.parse.urlparse(normalized).netloc != parsed.netloc:
+        if normalized in checked or urllib.parse.urlparse(normalized).netloc.lower().removeprefix("www.") != original_host:
             continue
         checked.add(normalized)
         try:
-            if not robot.can_fetch("UPBusinessLeadResearch", normalized):
+            if not robot.can_fetch(USER_AGENT, normalized):
                 continue
             page, final_url = fetch_page(normalized)
+            final_host = urllib.parse.urlparse(final_url).netloc.lower().removeprefix("www.")
+            if final_host != original_host:
+                continue
             matches = list(dict.fromkeys(normalize_email(x) for x in EMAIL_RE.findall(html.unescape(page)) if normalize_email(x)))
             if matches:
-                host = parsed.netloc.lower().removeprefix("www.")
-                same_domain = [e for e in matches if e.rsplit("@", 1)[1].lower() == host]
-                return (same_domain or matches)[0], final_url
+                # A Gmail/Outlook address is acceptable only when visibly published
+                # on the business's own domain page; third-party redirects are rejected.
+                return matches[0], final_url
         except Exception:
             continue
     return "", ""
@@ -271,8 +322,9 @@ def main():
     requested_fields = [str(x).strip() for x in requested_fields if str(x).strip()]
     headers = list(dict.fromkeys(BASE_FIELDS + requested_fields + ["latitude", "longitude"]))
     print(f"Locating search area: {location}")
-    south, west, north, east, display_location = locate_area(location)
+    south, west, north, east, display_location, boundary = locate_area(location)
     print(f"Using OpenStreetMap area: {display_location}")
+    print("District boundary polygon loaded; candidates outside it will be rejected.")
     elements = query_overpass((south, west, north, east))
     print(f"OpenStreetMap returned {len(elements)} candidate map objects.")
 
@@ -284,6 +336,11 @@ def main():
             continue
         seen_ids.add(osm_id)
         tags = element.get("tags", {})
+        center = element.get("center", {})
+        lat = element.get("lat", center.get("lat"))
+        lon = element.get("lon", center.get("lon"))
+        if lat is None or lon is None or not point_in_geometry(float(lon), float(lat), boundary):
+            continue
         if not is_relevant(tags, industry):
             continue
         record = make_record(element, district, display_location, requested_fields, seen_at)
@@ -322,14 +379,16 @@ def main():
         "required_email": True,
         "status": "SUCCESS" if len(records) == target else "INCOMPLETE",
         "incomplete_reason": "" if len(records) == target else f"Requested exactly {target} email-qualified leads, but only {len(records)} were found. No records without a public email were included.",
-        "source": "OpenStreetMap plus robots.txt-permitted public business website pages",
+        "source": "OpenStreetMap candidates inside the Nominatim district polygon plus same-site robots.txt-permitted public business website pages",
         "generated_at": seen_at,
         "limitations": [
             "OpenStreetMap coverage is community-maintained and may be incomplete.",
             "A public map listing is not proof that a business is currently active.",
             "Only records with a publicly listed, syntactically valid email are included; email deliverability is not verified.",
             "Business websites are inspected only when robots.txt permits; blocked or disallowed pages are skipped.",
-            "Only businesses discovered in the selected OpenStreetMap area are considered; this is not a complete business directory.",
+            "Candidates are checked against the returned district polygon; bounding-box-only matches are rejected.",
+            "Emails from redirected third-party or parked-domain pages are rejected.",
+            "Only businesses discovered in OpenStreetMap are considered; this is not a complete business directory.",
             "Custom fields not present in source data are left blank.",
             "No emails were sent and no lead data was committed to the public repository."
         ],
