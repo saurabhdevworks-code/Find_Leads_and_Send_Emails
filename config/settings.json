@@ -2,7 +2,7 @@
   "timezone": "Asia/Kolkata",
   "daily_lead_target": 25,
   "send_mode": "disabled",
-  "max_emails_per_day": 0,
+  "max_emails_per_day": 25,
   "require_public_source": true,
   "require_verified_email": true,
   "skip_duplicates": true,
