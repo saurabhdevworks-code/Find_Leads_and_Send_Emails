@@ -4,8 +4,9 @@ A GitHub-backed CRM scaffold for researching publicly listed digital marketing a
 
 ## Current status
 - CRM structure initialized.
-- No lead records have been collected or emailed.
-- No email automation is active.
+- A first public-source discovery engine is implemented using OpenStreetMap Nominatim and Overpass.
+- Discovery is manual; no scheduled run or email automation is active.
+- Results are uploaded as a downloadable GitHub Actions artifact and are not committed to this public repository.
 - The repository is currently public. All committed files, including future lead records, are publicly visible. Do not commit credentials, private correspondence, or personal data.
 
 ## Repository layout
@@ -40,4 +41,14 @@ Open the repository's **Actions** tab, choose **Configure Lead Search**, click *
 - Custom fields as a comma-separated list (for example: `owner_name,instagram,linkedin,company_size`)
 - Any extra filters or instructions
 
-The workflow saves your request to `config/search-request.json`. This is currently a request-configuration step only: it does not discover leads, verify contacts, or send emails. Email sending remains disabled.
+The workflow saves your request to `config/search-request.json`.
+
+### Run discovery
+1. First run **Configure Lead Search** and confirm the saved request.
+2. Open **Actions** → **Run Lead Discovery** → **Run workflow**.
+3. Open the completed run and download the `lead-discovery-results` artifact.
+4. The artifact contains a CSV and `run-summary.json`.
+
+The first discovery source is OpenStreetMap. It only returns businesses mapped with relevant industry tags; coverage can be incomplete. Public map data is not proof that a business is currently active. Email addresses are only syntax-checked, not deliverability-verified. Requested custom fields that are not present in the source are left blank. No emails are sent.
+
+**Public-repository safety:** lead results are deliberately uploaded as a temporary workflow artifact (14-day retention), not committed to `data/leads.csv`, because this repository is public. Make the repository private before enabling persistent CRM storage of real lead/contact data.
