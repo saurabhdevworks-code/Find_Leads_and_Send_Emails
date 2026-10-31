@@ -1,0 +1,20 @@
+{
+  "industry": "Digital marketing agencies",
+  "location": "Ghaziabad, Uttar Pradesh, India",
+  "district": "Ghaziabad",
+  "lead_count": 25,
+  "custom_fields": [
+    "business_name",
+    "location",
+    "district",
+    "services",
+    "mobile",
+    "email",
+    "website",
+    "source_url"
+  ],
+  "extra_instructions": "",
+  "requested_at": "2026-10-31T09:39:17.699383+00:00",
+  "status": "saved_only_not_executed",
+  "email_sending": "disabled"
+}
