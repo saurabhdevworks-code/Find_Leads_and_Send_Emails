@@ -277,7 +277,7 @@ def main():
     print(f"OpenStreetMap returned {len(elements)} candidate map objects.")
 
     seen_at = datetime.now(timezone.utc).isoformat()
-    records, seen_ids = [], set()
+    records, seen_ids, seen_emails, seen_names = [], set(), set(), set()
     for element in elements:
         osm_id = f"{element.get('type')}-{element.get('id')}"
         if osm_id in seen_ids:
@@ -298,7 +298,12 @@ def main():
                 record["verification_notes"] = "Email found on the business public website; mailbox deliverability is not verified."
             time.sleep(1.5)
         if record and record.get("email"):
-            records.append(record)
+            email_key = record["email"].strip().lower()
+            name_key = re.sub(r"[^a-z0-9]+", "", record["business_name"].lower())
+            if email_key not in seen_emails and name_key not in seen_names:
+                records.append(record)
+                seen_emails.add(email_key)
+                seen_names.add(name_key)
         if len(records) >= target:
             break
 
