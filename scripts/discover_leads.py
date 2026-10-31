@@ -210,7 +210,9 @@ def main():
         if not is_relevant(tags, industry):
             continue
         record = make_record(element, district, display_location, requested_fields, seen_at)
-        if record:
+        # Hard qualification rule: every exported lead must have a syntactically valid,
+        # publicly listed email address. Never fabricate or infer an email.
+        if record and record.get("email"):
             records.append(record)
         if len(records) >= target:
             break
@@ -226,12 +228,16 @@ def main():
     summary = {
         "industry": industry, "location": location, "district": district,
         "requested_lead_count": target, "leads_found": len(records),
+        "qualified_leads_found": len(records),
+        "required_email": True,
+        "status": "SUCCESS" if len(records) == target else "INCOMPLETE",
+        "incomplete_reason": "" if len(records) == target else f"Requested exactly {target} email-qualified leads, but only {len(records)} were found. No records without a public email were included.",
         "source": "OpenStreetMap via Nominatim and Overpass",
         "generated_at": seen_at,
         "limitations": [
             "OpenStreetMap coverage is community-maintained and may be incomplete.",
             "A public map listing is not proof that a business is currently active.",
-            "Contact details are not independently deliverability-verified.",
+            "Only records with a publicly listed, syntactically valid email are included; email deliverability is not verified.",
             "Custom fields not present in source data are left blank.",
             "No emails were sent and no lead data was committed to the public repository."
         ],
@@ -239,6 +245,8 @@ def main():
     }
     Path("artifacts/run-summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
+    if len(records) != target:
+        raise SystemExit(2)
 
 if __name__ == "__main__":
     try:
