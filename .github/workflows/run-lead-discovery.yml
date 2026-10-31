@@ -23,6 +23,7 @@ jobs:
         run: python scripts/discover_leads.py
 
       - name: Upload results (not committed to repository)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: lead-discovery-results
